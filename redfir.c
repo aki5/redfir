@@ -7,32 +7,47 @@
 
 typedef struct RedFir RedFir;
 struct RedFir {
-	float *imp;
-	float *samples;
+	double *imp; // filter impulse
+	double *samples; // ring buffer, 2*len
 	int len;
 	int off; // next sample index
 };
 
-static float
-blackman_nuttall(int i, int n)
+static double
+blackman_window(int i, int n)
 {
-	float a0 = 0.3635819f;
-	float a1 = 0.4891775f;
-	float a2 = 0.1365995f;
-	float a3 = 0.0106411f;
-	float rcp_n = 1.0f / (n);
-	float wn = a0 - a1 * cosf(2.0*M_PI*i*rcp_n) + a2 * cosf(4.0f*M_PI*i*rcp_n) - a3 * cosf(6.0*M_PI*i*rcp_n);
+	double rcp_n = 1.0f / (n-1);
+	return 0.42f - 0.5f*cos(2.0f*M_PI*i*rcp_n) + 0.08f*cos(4.0f*M_PI*i*rcp_n);
+}
+
+static double
+blackman_nuttall_window(int i, int n)
+{
+	double a0 = 0.3635819f;
+	double a1 = 0.4891775f;
+	double a2 = 0.1365995f;
+	double a3 = 0.0106411f;
+	double rcp_n = 1.0f / (n-1);
+	double wn = a0 - a1 * cos(2.0*M_PI*i*rcp_n) + a2 * cos(4.0f*M_PI*i*rcp_n) - a3 * cos(6.0*M_PI*i*rcp_n);
 	return wn;
 }
 
-static float
-sinc(float freq_ratio, int i, int n)
+static double
+blackman_harris_window(int i, int n)
 {
-	float shift = (n & 1) == 0 ? 0.5f : 0.0f;
-	float x = (i-n/2+shift)*2.0f*M_PI*freq_ratio;
+	double rcp_n = 1.0f / (n-1);
+	return 0.35875f - 0.48829f*cos(2.0f*M_PI*i*rcp_n) + 0.14128f*cos(4.0f*M_PI*i*rcp_n) - 0.01168f*cos(6.0f*M_PI*i*rcp_n);
+}
+
+
+static double
+sinc(double freq_ratio, int i, int n)
+{
+	double shift = (n & 1) == 0 ? 0.5f : 0.0f;
+	double x = (i-n/2+shift)*2.0f*M_PI*freq_ratio;
 	if(x == 0.0f)
 		return 1.0f;
-	return sinf(x)/x;
+	return sin(x)/x;
 }
 
 int
@@ -64,17 +79,18 @@ redfir_free(RedFir *fp)
 }
 
 void
-redfir_blackman_nuttall(RedFir *fp)
+redfir_window(RedFir *ap, double (*winfunc)(int i, int n))
 {
-	for(int i = 0; i < fp->len; i++)
-		fp->imp[i] = blackman_nuttall(i, fp->len);
+	for(int i = 0; i < ap->len; i++)
+		ap->imp[i] = (*winfunc)(i, ap->len);
 }
 
+
 void
-redfir_sinc(RedFir *fp, float freq_ratio)
+redfir_sinc(RedFir *ap, double freq_ratio)
 {
-	for(int i = 0; i < fp->len; i++)
-		fp->imp[i] = sinc(freq_ratio, i, fp->len);
+	for(int i = 0; i < ap->len; i++)
+		ap->imp[i] = sinc(freq_ratio, i, ap->len);
 }
 
 int
@@ -112,22 +128,14 @@ redfir_inverse(RedFir *dst, RedFir *ap)
 	return -1;
 }
 
-void
-redfir_print(FILE *fp, RedFir *ap)
-{
-	for(int i = 0; i < ap->len; i++){
-		fprintf(fp, "%d imp %.3f\n", i, ap->imp[i]);
-	}
-}
-
 int
 redfir_normalize(RedFir *dst, RedFir *ap)
 {
 	if(dst->len == ap->len){
-		float sum = ap->imp[0];
+		double sum = ap->imp[0];
 		for(int i = 1; i < ap->len; i++)
 			sum += ap->imp[i];
-		float rcp = 1.0f / sum;
+		double rcp = 1.0f / sum;
 		for(int i = 0; i < ap->len; i++)
 			dst->imp[i] = rcp*ap->imp[i];
 		return 0;
@@ -137,8 +145,8 @@ redfir_normalize(RedFir *dst, RedFir *ap)
 
 // [ 0 1 2 3 4 0 1 2 3 4 ]
 //   x y z w v x y z w v
-float
-redfir_step(RedFir *fp, float sample)
+double
+redfir_step(RedFir *fp, double sample)
 {
 	// insert new sample in the ring buffer
 	int off = fp->off;
@@ -157,7 +165,7 @@ redfir_step(RedFir *fp, float sample)
 	if(off == len)
 		off = 0;
 
-	float sum = fp->samples[off] * fp->imp[0];
+	double sum = fp->samples[off] * fp->imp[0];
 	for(int i = 1; i < len; i++)
 		sum += fp->samples[off + i] * fp->imp[i];
 
@@ -174,16 +182,16 @@ redfir_reset(RedFir *ap)
 }
 
 void
-redfir_genfreq(float *dst, int len, float freqratio)
+redfir_genfreq(double *dst, int len, double freqratio)
 {
 	for(int i = 0; i < len; i++){
-		float x = i*2.0f*M_PI*freqratio;
+		double x = i*2.0f*M_PI*freqratio;
 		dst[i] = sin(x);
 	}
 }
 
 void
-redfir_scale(RedFir *dst, RedFir *ap, float scale)
+redfir_scale(RedFir *dst, RedFir *ap, double scale)
 {
 	for(int i = 0; i < ap->len; i++)
 		dst->imp[i] = scale * ap->imp[i];
@@ -201,20 +209,28 @@ redfir_swap(RedFir *a, RedFir *b)
 void
 redfir_freqplot(FILE *fp, RedFir *ap)
 {
-	float ratio = powf(2.0f, 1.0f/24.0f);
+	double ratio = powf(2.0f, 1.0f/24.0f);
 	enum { InputLen = 8192 };
-	float *input = malloc(InputLen * sizeof input[0]);
-//	for(float freq = 13.75f; freq < 10000.0f; freq *= ratio){
-	for(float freq = 20.0f; freq < 10000.0f; freq += 25.0f){
+	double *input = malloc(InputLen * sizeof input[0]);
+//	for(double freq = 13.75f; freq < 10000.0f; freq *= ratio){
+	for(double freq = 20.0f; freq < 10000.0f; freq += 25.0f){
 		redfir_genfreq(input, InputLen, freq / 44100.0f);
 		redfir_reset(ap);
-		float maxout = 0.0f;
+		double maxout = 0.0f;
 		for(int i = 0; i < InputLen; i++){
-			float out = redfir_step(ap, input[i]);
+			double out = redfir_step(ap, input[i]);
 			if(i > ap->len && maxout < out)
 				maxout = out;
 		}
 		fprintf(fp, "%f %f\n", freq, 6.0*log2f(maxout));
+	}
+}
+
+void
+redfir_printf(FILE *fp, RedFir *ap)
+{
+	for(int i = 0; i < ap->len; i++){
+		fprintf(fp, "%d %.6f\n", i, ap->imp[i]);
 	}
 }
 
@@ -232,13 +248,14 @@ main(int argc, char *argv[])
 	redfir_init(&highpass, flen);
 	redfir_init(&win, flen);
 
-	redfir_blackman_nuttall(&win);
+	//redfir_window(&win, &blackman_nuttall_window);
+	redfir_window(&win, &blackman_harris_window);
 	redfir_sinc(&lowpass, freq / 44100.0f);
 	redfir_mul(&lowpass, &lowpass, &win);
 	redfir_normalize(&lowpass, &lowpass);
 	redfir_inverse(&highpass, &lowpass);
 
-	float att_db = 96.0;
+	double att_db = 96.0;
 	fprintf(stderr, "# estimated order %.1f\n", 44100.0f / freq);
 
 	FILE *fp = fopen("lp-freq.txt", "wb");
@@ -249,17 +266,25 @@ main(int argc, char *argv[])
 	redfir_freqplot(fp, &highpass);
 	fclose(fp);
 
+	fp = fopen("lowpass.txt", "wb");
+	redfir_printf(fp, &lowpass);
+	fclose(fp);
+
+	fp = fopen("window.txt", "wb");
+	redfir_printf(fp, &win);
+	fclose(fp);
+
 	// generate step response and spit it out.
 
 	fp = fopen("step.txt", "wb");
-	float input = 1.0f;
+	double input = 1.0f;
 	int j = 0;
 	for(int i = 0; i < 1000; i++){
 		if(j++ == 200){
 			input = -input;
 			j = 0;
 		}
-		float output = redfir_step(&lowpass, input);
+		double output = redfir_step(&lowpass, input);
 		fprintf(fp, "%d %.3f\n", i, output);
 	}
 	fclose(fp);
