@@ -300,6 +300,14 @@ main(int argc, char *argv[])
 	RedFir highpass;
 	RedFir bafflestep;
 
+	if(argc < 4){
+		fprintf(stderr, "usage: %s freq att_db bw\n", argv[0]);
+		fprintf(stderr, "	freq: cutoff frequency -6dB point\n");
+		fprintf(stderr, "	att_db: stop-band attenuation in dB (ie. 96 for 16bit\n");
+		fprintf(stderr, "	bw: transition bandwidth from full pass to specified stop band\n");
+		exit(1);
+	}
+
 	int freq = strtol(argv[1], NULL, 10);
 	int att_db = strtol(argv[2], NULL, 10);
 	int transbw = strtol(argv[3], NULL, 10);
