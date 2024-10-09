@@ -5,21 +5,8 @@
 #include <float.h>
 #include <string.h>
 
-typedef struct RedFir RedFir;
-typedef struct RedFirKaiser RedFirKaiser;
+#include "redfir.h"
 
-struct RedFir {
-	double *imp; // filter impulse
-	double *samples; // ring buffer, 2*len
-	int len;
-	int off; // next sample index
-};
-
-struct RedFirKaiser {
-	double beta;
-	double bessel_beta;
-	int order;
-};
 
 // 0th order modified bessel function of the first kind.
 // this isn't optimized for numerical performance, but
@@ -47,8 +34,8 @@ bessel0(double x)
 // more attenuation should widen the transition band.. which means
 // for the same transition we should need a wider filter.. but not?
 
-static void
-kaiser_fit(RedFirKaiser *kp, double transbw, double sfreq, double att_db)
+void
+redfir_kaiser(RedFirKaiser *kp, double transbw, double sfreq, double att_db)
 {
 	double tw = 2.0 * M_PI * transbw / sfreq;
 
@@ -318,7 +305,7 @@ main(int argc, char *argv[])
 	int transbw = strtol(argv[3], NULL, 10);
 
 	RedFirKaiser kaiser;
-	kaiser_fit(&kaiser, transbw, 44100.0, att_db);
+	redfir_kaiser(&kaiser, transbw, 44100.0, att_db);
 	fprintf(stderr, "# kaiser filter for %dhz band with -%ddB stop banda\n", transbw, att_db);
 	fprintf(stderr, "# filter order %d\n", kaiser.order);
 
